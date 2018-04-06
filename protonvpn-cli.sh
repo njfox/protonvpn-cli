@@ -277,7 +277,7 @@ function modify_dns_resolvconf() {
   #fi
 
   if [[ ("$1" == "to_protonvpn_dns") &&  ( $(detect_machine_type) != "Mac") ]]; then
-    if [[ $(cat "$(get_protonvpn_cli_home)/protonvpn_tier") == "0" ]]; then
+    if [[ "$2" == "0" ]]; then
       dns_server="10.8.0.1" # free tier dns
     else
       dns_server="10.8.8.1" # paid tier dns
@@ -351,8 +351,12 @@ function openvpn_connect() {
   modify_dns_resolvconf backup_resolvconf # backuping-up current resolv.conf
   manage_ipv6 disable # Disabling IPv6 on machine.
 
-  config_id=$1
+  config_id=$(echo "$1" | cut -d"@" -f1)
+  tier=$(echo "$1" | cut -d"@" -f8)
+  name=$(echo "$1" | cut -d"@" -f2)
+  echo "Connecting to $name"
   selected_protocol=$2
+  
   if [[ $selected_protocol == "" ]]; then
     selected_protocol="udp"  # Default protocol
   fi
@@ -382,7 +386,7 @@ function openvpn_connect() {
     sleep 5
     new_ip="$(check_ip)"
     if [[ ("$current_ip" != "$new_ip") && ("$new_ip" != "Error.") ]]; then
-      modify_dns_resolvconf to_protonvpn_dns # Use protonvpn DNS server
+      modify_dns_resolvconf to_protonvpn_dns "$tier" # Use protonvpn DNS server
       echo "[$] Connected!"
       echo "[#] New IP: $new_ip"
       exit 0
@@ -512,7 +516,7 @@ function connect_to_fastest_vpn() {
   echo "Fetching ProtonVPN Servers..."
   config_id=$(get_fastest_vpn_connection_id)
   selected_protocol="udp"
-  openvpn_connect "$config_id" "$selected_protocol"
+  openvpn_connect "$config_id" "$selected_protocol" 
 }
 
 function connect_to_random_vpn() {
@@ -546,7 +550,7 @@ function connect_to_specific_server() {
 
   echo "Fetching ProtonVPN Servers..."
 
-  server_list=$(get_vpn_config_details | tr ' ' '@')
+  server_list=$(get_vpn_config_details)
   if [[ "$(echo "$2" | tr '[:upper:]' '[:lower:]')" == "tcp" ]]; then
     protocol="tcp"
   else
@@ -554,10 +558,9 @@ function connect_to_specific_server() {
   fi
 
   for i in $server_list; do
-    id=$(echo "$i" | cut -d"@" -f1)
     name=$(echo "$i" | cut -d"@" -f2)
     if [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "$(echo "$name" | tr '[:upper:]' '[:lower:]')"  ]]; then
-      openvpn_connect "$id" "$protocol"
+      openvpn_connect "$i" "$protocol"
     fi
   done
 
@@ -622,38 +625,31 @@ function connection_to_vpn_via_dialog_menu() {
 
 }
 function get_fastest_vpn_connection_id() {
-  response_output=$(wget --header 'x-pm-appversion: Other' --header 'x-pm-apiversion: 3' \
-    --header 'Accept: application/vnd.protonmail.v1+json' \
-    --timeout 20 -q -O /dev/stdout "https://api.protonmail.ch/vpn/logicals")
+  response_output=$(get_vpn_config_details)
   tier=$(cat "$(get_protonvpn_cli_home)/protonvpn_tier")
   output=`python <<END
-import json, math, random
-json_parsed_response = json.loads("""$response_output""")
+import math, random
+parsed_response = """$response_output"""
 
 all_features = {"SECURE_CORE": 1, "TOR": 2, "P2P": 4, "XOR": 8, "IPV6": 16}
 excluded_features_on_fastest_connect = ["TOR"]
 
 candidates_1 = []
-for _ in json_parsed_response["LogicalServers"]:
-    server_features_index = int(_["Features"])
-    server_features  = []
-    for f in all_features.keys():
-        if (server_features_index & all_features[f]) > 0:
-            server_features.append(f)
-    is_excluded = False
-    for excluded_feature in excluded_features_on_fastest_connect:
-        if excluded_feature in server_features:
-            is_excluded = True
-    if is_excluded is True:
-        continue
-    if (_["Tier"] <= int("""$tier""")):
-        candidates_1.append(_)
+for _ in parsed_response.split("\n"):
+  _ = _.split("@")
+  excluded = False
+  for excluded_feature in excluded_features_on_fastest_connect:
+    if excluded_feature in _[-3]:
+      excluded = True
+      break
+  if not excluded:
+    if int(_[-2]) <= int("""$tier"""):
+      candidates_1.append("@".join(_))
 
 candidates_2_size = float(len(candidates_1)) / 100.00 * 5.00
-candidates_2 = sorted(candidates_1, key=lambda l: l["Score"])[:int(math.ceil(candidates_2_size))]
+candidates_2 = sorted(candidates_1, key=lambda l: l[-1])[:int(math.ceil(candidates_2_size))]
 random_candidate = random.choice(candidates_2)
-vpn_connection_id = random.choice(random_candidate["Servers"])["ID"]
-print(vpn_connection_id)
+print(random_candidate)
 
 END`
 
@@ -661,18 +657,16 @@ END`
 }
 
 function get_random_vpn_connection_id() {
-  response_output=$(wget --header 'x-pm-appversion: Other' --header 'x-pm-apiversion: 3' \
-    --header 'Accept: application/vnd.protonmail.v1+json' \
-    --timeout 20 -q -O /dev/stdout "https://api.protonmail.ch/vpn/logicals")
+  response_output=$(get_vpn_config_details)
   tier=$(cat "$(get_protonvpn_cli_home)/protonvpn_tier")
   output=`python <<END
-import json, random
-json_parsed_response = json.loads("""$response_output""")
+import random
 output = []
-for _ in json_parsed_response["LogicalServers"]:
-    if (_["Tier"] <= int("""$tier""")):
-        output.append(_)
-print(random.choice(output)["Servers"][0]["ID"])
+for _ in """$response_output""".split("\n"):
+  _ = _.split("@")
+  if int(_[-2]) <= int("""$tier"""):
+    output.append("@".join(_))
+print(random.choice(output))
 END`
 
   echo "$output"
@@ -682,14 +676,12 @@ function get_vpn_config_details() {
   response_output=$(wget --header 'x-pm-appversion: Other' --header 'x-pm-apiversion: 3' \
     --header 'Accept: application/vnd.protonmail.v1+json' \
     --timeout 20 -q -O /dev/stdout "https://api.protonmail.ch/vpn/logicals")
-  tier=$(cat "$(get_protonvpn_cli_home)/protonvpn_tier")
   output=`python <<END
 import json, random
 json_parsed_response = json.loads("""$response_output""")
 output = []
 for _ in json_parsed_response["LogicalServers"]:
-    if (_["Tier"] <= int("""$tier""")):
-        output.append(_)
+    output.append(_)
 all_features = {"SECURE_CORE": 1, "TOR": 2, "P2P": 4, "XOR": 8, "IPV6": 16}
 for _ in output:
     server_features_index = int(_["Features"])
@@ -703,9 +695,9 @@ for _ in output:
     else:
         server_features_output = ",".join(server_features)
 
-    o = "{} {}@{}@{}@{}@{}@{}".format(_["Servers"][0]["ID"], _["Name"], \
+    o = "{}@{}@{}@{}@{}@{}@{}@{}@{}".format(_["Servers"][0]["ID"], _["Name"], \
       _["EntryCountry"], _["Load"], _["Servers"][0]["EntryIP"], _["Servers"][0]["ExitIP"], \
-      str(server_features_output))
+      str(server_features_output), _["Tier"], _["Score"])
     print(o)
 END`
 
@@ -730,6 +722,7 @@ function help_message() {
     echo "   -h, --help                          Show this help message."
     echo
 
+    echo $(get_fastest_vpn_connection_id)
     exit 0
 }
 
