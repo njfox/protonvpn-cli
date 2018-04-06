@@ -353,6 +353,7 @@ function openvpn_connect() {
 
   config_id=$(echo "$1" | cut -d"@" -f1)
   tier=$(echo "$1" | cut -d"@" -f8)
+  name=$(echo "$1" | cut -d"@" -f2)
   selected_protocol=$2
   
   if [[ $selected_protocol == "" ]]; then
@@ -587,15 +588,19 @@ function connection_to_vpn_via_dialog_menu() {
   c2=$(get_vpn_config_details)
   counter=0
   for i in $c2; do
-    ID=$(echo "$i" | cut -d " " -f1)
-    data=$(echo "$i" | tr '@' ' ' | awk '{$1=""; print $0}' | tr ' ' '@')
+    ID=$(echo "$i" | cut -d "@" -f1)
+    tier=$(echo "$i" | cut -d "@" -f8 | tr '0' 'F' | tr '1' 'B' | tr '2' 'P')
+    score=$(echo "$i" | cut -d "@" -f9)
+    fields1=$(echo "$i" | cut -d "@" -f1-7)
+    fields2="${fields1}@${tier}@${score}"
+    data=$(echo "$fields2" | tr '@' ' ' | awk '{$1=""; print $0}' | tr ' ' '@')
     counter=$((counter+1))
     ARRAY+=($counter)
     ARRAY+=($data)
   done
 
   config_id=$(dialog --clear  --ascii-lines --output-fd 1 --title "ProtonVPN-CLI" --column-separator "@" \
-    --menu "ID - Name - Country - Load - EntryIP - ExitIP - Features" 35 300 "$((${#ARRAY[@]}))" "${ARRAY[@]}" )
+    --menu "ID - Name - Country - Load - EntryIP - ExitIP - Features - Tier - Score" 35 300 "$((${#ARRAY[@]}))" "${ARRAY[@]}" )
   clear
   if [[ $config_id == "" ]]; then
     exit 2
@@ -603,10 +608,9 @@ function connection_to_vpn_via_dialog_menu() {
 
   c=1
   for i in $c2; do
-    ID=$(echo "$i" | cut -d " " -f1)
+    ID=$(echo "$i" | cut -d "@" -f1)
     if [[ $c -eq $config_id ]]; then
-      ID=$(echo "$i" | cut -d " " -f1)
-      config_id=$ID
+      config_id=$i
       break
     fi
     c=$((c+1))
