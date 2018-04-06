@@ -353,8 +353,6 @@ function openvpn_connect() {
 
   config_id=$(echo "$1" | cut -d"@" -f1)
   tier=$(echo "$1" | cut -d"@" -f8)
-  name=$(echo "$1" | cut -d"@" -f2)
-  echo "Connecting to $name"
   selected_protocol=$2
   
   if [[ $selected_protocol == "" ]]; then
