@@ -722,7 +722,6 @@ function help_message() {
     echo "   -h, --help                          Show this help message."
     echo
 
-    echo $(get_fastest_vpn_connection_id)
     exit 0
 }
 
