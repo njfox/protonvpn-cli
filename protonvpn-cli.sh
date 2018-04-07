@@ -585,18 +585,22 @@ function connection_to_vpn_via_dialog_menu() {
 
   echo "Fetching ProtonVPN Servers..."
 
+  user_tier=$(cat "$(get_protonvpn_cli_home)/protonvpn_tier")
   c2=$(get_vpn_config_details)
-  counter=0
+  counter=1
   for i in $c2; do
-    ID=$(echo "$i" | cut -d "@" -f1)
-    tier=$(echo "$i" | cut -d "@" -f8 | tr '0' 'F' | tr '1' 'B' | tr '2' 'P')
-    score=$(echo "$i" | cut -d "@" -f9)
-    fields1=$(echo "$i" | cut -d "@" -f1-7)
-    fields2="${fields1}@${tier}@${score}"
-    data=$(echo "$fields2" | tr '@' ' ' | awk '{$1=""; print $0}' | tr ' ' '@')
+    server_tier=$(echo "$i" | cut -d "@" -f8)
+    if [[ $server_tier -le $user_tier ]]; then
+      ID=$(echo "$i" | cut -d "@" -f1)
+      tier=$(echo "$server_tier" | tr '0' 'F' | tr '1' 'B' | tr '2' 'P')
+      score=$(echo "$i" | cut -d "@" -f9)
+      fields1=$(echo "$i" | cut -d "@" -f1-7)
+      fields2="${fields1}@${tier}@${score}"
+      data=$(echo "$fields2" | tr '@' ' ' | awk '{$1=""; print $0}' | tr ' ' '@')
+      ARRAY+=($counter)
+      ARRAY+=($data)
+    fi
     counter=$((counter+1))
-    ARRAY+=($counter)
-    ARRAY+=($data)
   done
 
   config_id=$(dialog --clear  --ascii-lines --output-fd 1 --title "ProtonVPN-CLI" --column-separator "@" \
